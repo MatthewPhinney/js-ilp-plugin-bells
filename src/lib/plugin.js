@@ -11,32 +11,6 @@ const ExternalError = require('../errors/external-error')
 const UnrelatedNotificationError = require('../errors/unrelated-notification-error')
 const EventEmitter2 = require('eventemitter2').EventEmitter2
 
-const backoffMin = 1000
-const backoffMax = 30000
-
-function * requestRetry (opts, errorMessage, credentials) {
-  let delay = backoffMin
-  while (true) {
-    try {
-      let res = yield request(lodash.defaults(opts, lodash.omitBy({
-        auth: credentials.password && credentials.username && {
-          user: credentials.username,
-          pass: credentials.password
-        },
-        cert: credentials.cert,
-        key: credentials.key,
-        ca: credentials.ca,
-        json: true
-      }, lodash.isUndefined)))
-      return res
-    } catch (err) {
-      log.warn(errorMessage)
-      delay = Math.min(Math.floor(1.5 * delay), backoffMax)
-      yield wait(delay)
-    }
-  }
-}
-
 class FiveBellsLedger extends EventEmitter2 {
   constructor (options) {
     super()
@@ -56,7 +30,6 @@ class FiveBellsLedger extends EventEmitter2 {
     this.connector = options.connector || null
 
     this.debugReplyNotifications = options.debugReplyNotifications || false
-    this.debugAutofund = options.debugAutofund || null
 
     this.connection = null
     this.connected = false
@@ -263,7 +236,7 @@ class FiveBellsLedger extends EventEmitter2 {
       json: true
     })
     if (res.statusCode !== 200) {
-      throw new Error('Unexpected status code: ' + res.statusCode)
+      throw new ExternalError('Unexpected status code: ' + res.statusCode)
     }
     return _.map(res.body, 'connector')
   }
@@ -453,29 +426,6 @@ class FiveBellsLedger extends EventEmitter2 {
       throw new ExternalError('Remote error: status=' + transferRes.statusCode + ' body=' + transferRes.body)
     }
     return transferRes
-  }
-
-  * _autofund () {
-    this.log.info('autofund account at ' + this.credentials.account)
-    const admin = this.debugAutofund.admin
-    yield requestRetry({
-      method: 'put',
-      url: this.credentials.account,
-      json: true,
-      body: {
-        name: this.credentials.username,
-        balance: '1500000',
-        connector: this.debugAutofund.connector,
-        password: this.credentials.password,
-        fingerprint: this.credentials.fingerprint
-      }
-    }, 'could not create account at ledger ' + this.id, admin)
-  }
-}
-
-function wait (ms) {
-  return function (done) {
-    setTimeout(done, ms)
   }
 }
 
